@@ -1,6 +1,6 @@
 # GitHub Self-Hosted Runner Setup Guide
 
-This guide will help you set up a GitHub self-hosted runner on your CyberPoker server for automated deployments.
+ℹ️ **Note:** This guide is for reference only. The current deployment uses **SSH-based GitHub Actions** which is simpler and working perfectly. You only need this if you want to switch to a self-hosted runner approach.
 
 ## 🎯 What This Does
 
@@ -290,30 +290,3 @@ sudo journalctl -u actions.runner.* --since today
 ```
 
 ---
-
-## 🎉 You're Done!
-
-Your server now has:
-- ✅ Automated deployments on every push to `main`
-- ✅ Manual deployment triggers from GitHub
-- ✅ No SSH keys or secrets needed
-- ✅ Deployment logs visible in GitHub Actions
-
-### Next Steps:
-
-1. Test a deployment by pushing a change
-2. Monitor the Actions tab to see it run
-3. Check server logs to verify everything works
-4. Enjoy automated deployments! 🚀
-
----
-
-## 📞 Need Help?
-
-- Check GitHub Actions logs: Repository → Actions → Latest run
-- Check server logs: `docker logs cyberpoker-server`
-- Check runner logs: `sudo journalctl -u actions.runner.* -f`
-
----
-
-**Last Updated:** 2025-10-11

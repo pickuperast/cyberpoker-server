@@ -2,26 +2,38 @@
 
 Linux dedicated server deployment for CyberPoker multiplayer poker game.
 
+✅ **Status: Production Ready** - Automated deployment system is fully operational!
+
 ## 🚀 Quick Start
 
 ### Automated Deployment (Recommended)
 
 This repository uses GitHub Actions with SSH to automatically deploy to your server.
 
-**Setup once (5 minutes):**
+**One-time setup (already completed):**
 1. Generate SSH key pair
 2. Add public key to your server
 3. Create fine-grained GitHub token (repository-scoped)
 4. Store token on server in `~/.github_token`
 5. Add SSH secrets to GitHub (SSH_PRIVATE_KEY, SERVER_IP)
 
-**Then just push to `main`:**
+**Daily usage:**
 ```bash
+git add .
+git commit -m "build: Update server build"
 git push origin main
-# Server automatically rebuilds and restarts via SSH!
+# ✅ Server automatically rebuilds and restarts via SSH!
 ```
 
-See [Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md) for detailed setup.
+**What happens automatically:**
+1. 🚀 GitHub Actions triggers on push to `main`
+2. 🔐 SSH connection established to your server
+3. 📥 Latest code pulled/cloned to `/opt/cyberpoker-server`
+4. 🐳 Docker image built with new Unity build
+5. ♻️ Container restarted with zero downtime
+6. ✅ Server live on port 7770
+
+See [Deployment Quick Start](docs/DEPLOYMENT_QUICK_START.md) for setup details.
 
 ### Manual Deployment
 
@@ -114,48 +126,43 @@ See `.env.example` for all available options.
 
 ## 🛠️ Troubleshooting
 
-### Server Won't Start
+✅ **System Status: All components operational**
+
+### Quick Health Check
 
 ```bash
-# Check logs
-docker logs cyberpoker-server
+# Check if server is running
+docker ps | grep cyberpoker
 
-# Check dependencies
-docker exec cyberpoker-server ldd /app/Server.x86_64
+# View recent logs
+docker logs cyberpoker-server --tail 50
 
-# Rebuild from scratch
-docker-compose -f docker/docker-compose.yml down
-docker-compose -f docker/docker-compose.yml build --no-cache
-docker-compose -f docker/docker-compose.yml up -d
+# Test connection
+nc -zv YOUR_SERVER_IP 7770
 ```
 
-### Can't Connect to Server
+### Common Commands
 
 ```bash
-# Check firewall
-sudo ufw status
-sudo ufw allow 7770/tcp
-sudo ufw allow 7770/udp
+# Restart server
+docker-compose -f docker/docker-compose.yml restart
 
-# Check port is listening
-sudo netstat -tlnp | grep 7770
+# View live logs
+docker logs -f cyberpoker-server
 
-# Check Docker networking
-docker network inspect bridge
+# Check deployment history
+cd /opt/cyberpoker-server && git log --oneline -5
+
+# Manual deployment
+ssh root@YOUR_SERVER_IP "cd /opt/cyberpoker-server && git pull && docker-compose -f docker/docker-compose.yml up -d --build"
 ```
 
-### Deployment Fails
+### If Issues Occur
 
-1. Check GitHub Actions logs: **Actions** tab → Latest run
-2. Verify SSH connection:
-   ```bash
-   ssh ubuntu@YOUR_SERVER_IP "echo 'Connection test'"
-   ```
-3. Check GitHub secrets are set correctly
-4. View server logs:
-   ```bash
-   ssh ubuntu@YOUR_SERVER_IP "docker logs cyberpoker-server"
-   ```
+1. **Check GitHub Actions logs**: **Actions** tab → Latest workflow run
+2. **View server logs**: `docker logs cyberpoker-server`
+3. **Verify container status**: `docker ps | grep cyberpoker`
+4. **Check firewall**: Ensure port 7770 (TCP/UDP) is open
 
 ---
 
