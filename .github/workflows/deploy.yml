@@ -1,0 +1,58 @@
+name: Deploy Server
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'server/**'
+      - 'docker/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        lfs: true
+    
+    - name: Checkout LFS objects
+      run: git lfs checkout
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          cd /opt/cyberpoker-server
+          git pull origin main
+          git lfs pull
+          docker-compose -f docker/docker-compose.yml down
+          docker-compose -f docker/docker-compose.yml build
+          docker-compose -f docker/docker-compose.yml up -d
+          
+    - name: Wait for server to start
+      run: sleep 10
+      
+    - name: Check deployment
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        port: ${{ secrets.SERVER_PORT }}
+        script: |
+          if docker ps | grep -q cyberpoker-server; then
+            echo "✅ Server is running!"
+            docker logs cyberpoker-server --tail 20
+          else
+            echo "❌ Server failed to start"
+            docker logs cyberpoker-server
+            exit 1
+          fi
