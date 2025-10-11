@@ -9,50 +9,161 @@ on:
       - '.github/workflows/deploy.yml'
   workflow_dispatch:  # Manual trigger
 
+# Define environment variables for deployment
+env:
+  SERVER_USER: "root"  # Change this to your server username if different
+  PROJECT_DIR_ON_SERVER: "/opt/cyberpoker-server"
+  DOCKER_COMPOSE_PATH: "docker/docker-compose.yml"
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         lfs: true
     
-    - name: Checkout LFS objects
-      run: git lfs checkout
+    - name: Pull LFS files
+      run: git lfs pull
+    
+    - name: Install SSH key
+      uses: shimataro/ssh-key-action@v2.6.0
+      with:
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        known_hosts: unnecessary
+        key_path: ~/.ssh/id_rsa
+        if_key_exists: replace
+    
+    - name: Add server to known_hosts
+      run: |
+        mkdir -p ~/.ssh
+        chmod 700 ~/.ssh
+        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+        chmod 644 ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/id_rsa
+    
+    - name: Test SSH connection
+      run: |
+        echo "Testing SSH connection..."
+        ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ secrets.SERVER_IP }} "echo '✅ SSH connection successful'"
     
     - name: Deploy to server
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          cd /opt/cyberpoker-server
-          git pull origin main
-          git lfs pull
-          docker-compose -f docker/docker-compose.yml down
-          docker-compose -f docker/docker-compose.yml build
-          docker-compose -f docker/docker-compose.yml up -d
+      env:
+        GHA_SERVER_IP: ${{ secrets.SERVER_IP }}
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@$GHA_SERVER_IP \
+          "export REPO_URL='https://github.com/${{ github.repository }}.git' && \
+           export BRANCH_NAME='${{ github.ref_name }}' && \
+           bash -s" << 'DEPLOY_SCRIPT'
+        
+        set -e
+        
+        echo "🚀 Starting CyberPoker server deployment..."
+        echo "Repository: ${{ github.repository }}"
+        echo "Branch: ${{ github.ref_name }}"
+        echo "Project directory: ${{ env.PROJECT_DIR_ON_SERVER }}"
+        
+        PROJECT_DIR="${{ env.PROJECT_DIR_ON_SERVER }}"
+        
+        # Navigate to project directory or clone if it doesn't exist
+        if [ -d "$PROJECT_DIR/.git" ]; then
+          echo "📂 Project directory exists. Updating repository..."
+          cd "$PROJECT_DIR"
           
-    - name: Wait for server to start
-      run: sleep 10
-      
-    - name: Check deployment
-      uses: appleboy/ssh-action@master
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        port: ${{ secrets.SERVER_PORT }}
-        script: |
-          if docker ps | grep -q cyberpoker-server; then
-            echo "✅ Server is running!"
-            docker logs cyberpoker-server --tail 20
+          # Check for uncommitted changes
+          if ! git diff --quiet || ! git diff --cached --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "⚠️  Found uncommitted/untracked changes. Stashing them..."
+            git add -A 2>/dev/null || true
+            git stash push -u -m "Auto-stash before deployment $(date)" 2>/dev/null || {
+              echo "Stash failed, performing hard reset..."
+              git reset --hard HEAD 2>/dev/null || true
+              git clean -fd 2>/dev/null || true
+            }
+          fi
+          
+          # Pull latest changes
+          echo "⬇️  Pulling latest changes from origin/$BRANCH_NAME..."
+          git fetch origin "$BRANCH_NAME" || git fetch origin
+          git checkout "$BRANCH_NAME" 2>/dev/null || echo "Using current branch"
+          git reset --hard "origin/$BRANCH_NAME" 2>/dev/null || git reset --hard HEAD
+          git clean -fd
+          
+          # Pull LFS files
+          echo "📦 Pulling Git LFS files..."
+          git lfs pull || echo "Warning: LFS pull failed, continuing..."
+          
+        else
+          echo "📂 Project directory does not exist. Cloning repository..."
+          sudo mkdir -p "$(dirname "$PROJECT_DIR")"
+          sudo chown ${{ env.SERVER_USER }}:${{ env.SERVER_USER }} "$(dirname "$PROJECT_DIR")"
+          rm -rf "$PROJECT_DIR"
+          
+          # Clone the repository using GitHub token from server
+          echo "📥 Cloning repository: $REPO_URL"
+          
+          # Check if GitHub token exists on server
+          if [ -f ~/.github_token ]; then
+            GH_TOKEN=$(cat ~/.github_token)
+            REPO_PATH="${REPO_URL#https://github.com/}"
+            AUTHENTICATED_URL="https://${GH_TOKEN}@github.com/${REPO_PATH}"
+            
+            git clone --depth 1 --branch "$BRANCH_NAME" "$AUTHENTICATED_URL" "$PROJECT_DIR" || {
+              echo "Branch-specific clone failed, trying default branch..."
+              git clone --depth 1 "$AUTHENTICATED_URL" "$PROJECT_DIR"
+              cd "$PROJECT_DIR"
+              git checkout "$BRANCH_NAME" 2>/dev/null || echo "Using default branch"
+            }
           else
-            echo "❌ Server failed to start"
-            docker logs cyberpoker-server
+            echo "❌ ERROR: GitHub token not found at ~/.github_token"
+            echo "Please create a fine-grained token and save it to ~/.github_token on the server"
             exit 1
           fi
+          
+          cd "$PROJECT_DIR"
+          
+          # Pull LFS files
+          echo "📦 Pulling Git LFS files..."
+          git lfs pull || echo "Warning: LFS pull failed, continuing..."
+        fi
+        
+        echo "📍 Current directory: $(pwd)"
+        echo "🔍 Verifying docker-compose.yml exists..."
+        if [ ! -f "${{ env.DOCKER_COMPOSE_PATH }}" ]; then
+          echo "❌ ERROR: ${{ env.DOCKER_COMPOSE_PATH }} not found in $(pwd)"
+          ls -la docker/
+          exit 1
+        fi
+        
+        echo "🛑 Stopping existing services..."
+        docker-compose -f ${{ env.DOCKER_COMPOSE_PATH }} down 2>/dev/null || true
+        
+        echo "🔨 Building and starting services..."
+        docker-compose -f ${{ env.DOCKER_COMPOSE_PATH }} up -d --build --force-recreate
+        
+        echo "🧹 Cleaning up old Docker images..."
+        docker image prune -f
+        
+        echo "✅ Deployment completed successfully!"
+        echo ""
+        echo "📊 Current running containers:"
+        docker-compose -f ${{ env.DOCKER_COMPOSE_PATH }} ps
+        
+        echo ""
+        echo "⏳ Waiting 10 seconds for container to start up..."
+        sleep 10
+        
+        echo ""
+        echo "📋 Container logs:"
+        docker logs cyberpoker-server --tail 50 || docker-compose -f ${{ env.DOCKER_COMPOSE_PATH }} logs --tail 50
+        
+        echo ""
+        echo "🎮 Container status:"
+        docker ps --filter name=cyberpoker-server --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+        
+        echo ""
+        echo "🎉 Deployment verification complete!"
+        echo "🎮 CyberPoker server should be available on port 7770"
+        
+        DEPLOY_SCRIPT
