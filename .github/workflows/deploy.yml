@@ -79,6 +79,22 @@ jobs:
           echo "✅ Docker found: $(docker --version)"
         fi
         
+        # Fix Docker DNS configuration if needed
+        echo "🔧 Configuring Docker DNS..."
+        sudo mkdir -p /etc/docker
+        if [ ! -f /etc/docker/daemon.json ] || ! grep -q "dns" /etc/docker/daemon.json; then
+          echo '{
+            "dns": ["8.8.8.8", "1.1.1.1", "8.8.4.4"]
+          }' | sudo tee /etc/docker/daemon.json > /dev/null
+          echo "✅ Docker DNS configured"
+          echo "🔄 Restarting Docker daemon..."
+          sudo systemctl restart docker
+          sleep 5
+          echo "✅ Docker daemon restarted"
+        else
+          echo "✅ Docker DNS already configured"
+        fi
+        
         # Check for Docker Compose (modern docker compose plugin)
         if ! docker compose version &> /dev/null; then
           echo "❌ Docker Compose plugin not found. Installing..."

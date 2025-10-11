@@ -1,7 +1,13 @@
 FROM ubuntu:22.04
 
+# Set up DNS for package installation (fix DNS resolution issues)
+RUN echo "nameserver 8.8.8.8" > /etc/resolv.conf && \
+    echo "nameserver 1.1.1.1" >> /etc/resolv.conf
+
 # Install runtime dependencies for Unity Linux build
-RUN apt-get update && apt-get install -y \
+# Using retries and longer timeout for flaky network connections
+RUN apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     libglu1-mesa \
     libxcursor1 \
     libxrandr2 \
