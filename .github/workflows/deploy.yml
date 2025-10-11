@@ -40,20 +40,20 @@ jobs:
       run: |
         mkdir -p ~/.ssh
         chmod 700 ~/.ssh
-        ssh-keyscan -H ${{ secrets.SERVER_IP }} >> ~/.ssh/known_hosts
+        ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
         chmod 644 ~/.ssh/known_hosts
         chmod 600 ~/.ssh/id_rsa
     
     - name: Test SSH connection
       run: |
         echo "Testing SSH connection..."
-        ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ secrets.SERVER_IP }} "echo '✅ SSH connection successful'"
+        ssh -o ConnectTimeout=10 -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@${{ secrets.SERVER_HOST }} "echo '✅ SSH connection successful'"
     
     - name: Deploy to server
       env:
-        GHA_SERVER_IP: ${{ secrets.SERVER_IP }}
+        GHA_SERVER_HOST: ${{ secrets.SERVER_HOST }}
       run: |
-        ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@$GHA_SERVER_IP \
+        ssh -o StrictHostKeyChecking=no ${{ env.SERVER_USER }}@$GHA_SERVER_HOST \
           "export REPO_URL='https://github.com/${{ github.repository }}.git' && \
            export BRANCH_NAME='${{ github.ref_name }}' && \
            bash -s" << 'DEPLOY_SCRIPT'
